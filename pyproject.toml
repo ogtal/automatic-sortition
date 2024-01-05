@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "sortition"
+version = "0.1.0"
+description = ""
+authors = ["DigiDemLab"]
+license = "AGPLv3"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+numpy = "^1.26.3"
+pandas = "^2.1.0"
+xlsxwriter = "^3.1.2"
+openpyxl = "^3.1.2"
+odfpy = "^1.4.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
