@@ -46,7 +46,7 @@ def excess_or_demand(
     population: pd.DataFrame,
     strictness: float = np.inf,
     demand: bool = True,
-) -> list[dict]:
+) -> list[pd.DataFrame]:
     """A function to find the people in a population that have characteristics that are either in demand or in excess. Whether it finds the former or the latter is determined by the *demand* toggle.
 
     Args:
@@ -56,7 +56,7 @@ def excess_or_demand(
         demand (bool, optional): Toggle for whether to look for people in demnd or in excess. Defaults to True.
 
     Returns:
-        list[dict]: A list of dictionaries. Each dictionary has two keys: "criteria" and "volunteers". The value with the former key is a set of criteria. The value with the latter key is DataFrame of people who have the relevant charactersitics of all the criteria in set. The length of the list is determined my the strictness: At maximum strictness the list will have one element, with the set in "criteria" containing all the criteria. At strictness 1 the list will be as long as the number of criteria, vwith the sets in "criteria" each containg one criterium. At strictness between the maximum and 1 each each set is one of all the possible combinations of k criteria, where k is the strictess; The length of the list is therefore nCk where n is the number of criteria, and k still is the strictness.
+        list[pd.DataFrame]: A list of DataFrames of people in demand/excess for different groups of criteria.
     """
     masks = {}
     # Iterate over the criteria and the overview for each of them
@@ -92,11 +92,11 @@ def excess_or_demand(
         # current combination
         #      |--[4]---...|-----[3]---... [2]--|------------[1]-----------|
         vols = population[[all(x) for x in zip(*(masks[key] for key in comb))]]
-        dfs.append({"criteria": {*comb}, "volunteers": vols})
+        dfs.append(vols)
     return dfs
 
 
-def distance(overview: dict[pd.DataFrame]) -> int:
+def get_distance(overview: dict[pd.DataFrame]) -> int:
     """A function to calculate the total deaition of a sample from the criteria.
 
     Args:
@@ -105,6 +105,7 @@ def distance(overview: dict[pd.DataFrame]) -> int:
     Returns:
         int: Sum of the absolute values of all the "difference" columns.
     """
+
     s = 0
     for df in overview.values():
         s += df["difference"].apply(abs).sum()
@@ -147,44 +148,35 @@ def main_iteration(
     strictness = len(overview)
     # A mask of which people in the /volunteers/ DataFrame are also in the /sample/ DataFrame. These are the people who have already been lotted.
     isin_mask = volunteers["Navn"].isin(sample["Navn"])
+    # Inital distance
+    distance = get_distance(overview)
+
     # Loop over ever decreasing strictnesses until a swappable match is found.
     while strictness >= 1:
         # Get list of dicts with DataFrames of people who have not been lotted but have characteristics that are in demand
-        in_demand = excess_or_demand(
-            overview, volunteers[~isin_mask], strictness, demand=True
-        )
+        in_demand = excess_or_demand(overview, volunteers[~isin_mask], strictness)
         # Get list of dicts with DataFrames of people who have been lotted, but who have characeristics that are in excess
         in_excess = excess_or_demand(overview, sample, strictness, demand=False)
 
-        # Iterate over the dicts. The value with the key "criteria" will be the set of relevant criteria. This will be equal between the two dicts dem and exc.
-        # This means that the people in the DataFrames (accessed from the dict with the key "volunteers") will have cahracteristics in demand/excess in the same
-        # criteria. E.g. if the criteria are (gender, education), and we are in demand of people who are female and have a university education, but  have an
-        # excess of people who are male, and people who have high school education, the DataFrames will contain such individuals respectively.
+        # Iterate over the DataFrames. The people in demnd will have characteristics in demand in the same criteria as the people in excess have characteristics
+        # in excess. E.g. if the criteria are (gender, education), and we are in demand of people who are female, and people who have a university education, but have an excess of people who are male, and people who have high school education, the DataFrames will contain such individuals respectively.
         for dem, exc in zip(in_demand, in_excess):
-            # Find the relevant critera, which correspond to columns in the DataFrames where the people have characteristics in demand/excess.
-            var_cols = dem["criteria"]
-            # The criteria we are not currently interested in. We want to swap two people who have the same characteristics in these criteria, so that we do not
-            # change their distribution.
-            fixed_cols = list(set(criteria.keys()) - var_cols)
-            # If the relevant criteria is the empty set, continue to the next iteration of the loop. This means that there are no criteria in demand
-            if dem["criteria"] == set():
-                break
             # Randomly sort the people in demand and iterate over their indices
-            for i in dem["volunteers"].sample(len(dem["volunteers"])).index:
+            for i in dem.sample(len(dem)).index:
                 # Access the current volunteer in demand
-                vol = dem["volunteers"].loc[[i]]
-                # Create a list of all volunteers in excess whose values in the fixed columns is equal to that of the current volunteer in demand.
-                ex_vols = exc["volunteers"][
-                    exc["volunteers"][fixed_cols].isin(vol[fixed_cols].values[0]).all(1)
-                ]
-                # If there are any possible volunteers in excess to swap with, select a random one, and wap them for curret volunteer in demand, and return the
-                # resulting sample. If not, continue to the next volunteer in demand.
-                if len(ex_vols) > 0:
-                    ex_vol = ex_vols.sample(1)
-                    sample = pd.concat(
+                vol = dem.loc[[i]]
+
+                # Iterate over the volunteers in excess in random order
+                for j in exc.sample(len(exc)).index:
+                    ex_vol = exc.loc[[j]]
+
+                    # Create a temporary sample where the current person in excess is swapped for the current person in demand.
+                    temp_sample = pd.concat(
                         [sample.drop(ex_vol.index[0]), vol], ignore_index=True
                     )
-                    return sample
+                    # If the new temporary sample has a lower distance than the original one, return is as the new sample.
+                    if get_distance(get_overview(temp_sample, criteria)) <= distance:
+                        return temp_sample
         # If after looping through all combinations of criteria there has not been found any suitable pairs of volunteers to swap, reduce the strictness and
         # repeat.
         strictness -= 1
@@ -213,25 +205,27 @@ def main(
         pd.DataFrame: Final optimal lotting.
     """
     if not validate_crtiera(criteria=criteria):
-        raise CriteriaError("Not all criteria demand the same number of people")
+        raise CriteriaError("Not all criteria demand the same total number of people")
 
     sample = starting_sample.copy()
     overview = get_overview(sample, criteria)
     old_distance = np.inf
-    new_distance = distance(overview)
+    distance = get_distance(overview)
+
+    stop = False
     # Iterate until a perfect lotting is found.
-    while new_distance > 0:
+    while distance > 0:
         # Swap one person in excess with one person in demand
         sample = main_iteration(sample, volunteers, overview, criteria)
 
         # Get new overview and distance
         overview = get_overview(sample, criteria)
-        old_distance = new_distance
-        new_distance = distance(overview)
+        old_distance = distance
+        distance = get_distance(overview)
 
         # If distance does not improve, quit loop.
-        if old_distance == new_distance:
-            print(f"Distance not improving beyond {int(new_distance)}. Exiting")
+        if old_distance == distance:
+            print(f"Distance not improving beyond {int(distance)}. Exiting.")
             break
     # Return final optimal sample.
     return sample
@@ -254,7 +248,7 @@ if __name__ == "__main__":
         sum(criteria[list(criteria.keys())[0]]["values"].values())
     )
 
-    lotting = main(starting_sortition=sample, volunteers=volunteers, criteria=criteria)
+    lotting = main(starting_sample=sample, volunteers=volunteers, criteria=criteria)
 
     overview = get_overview(lotting, criteria)
 
