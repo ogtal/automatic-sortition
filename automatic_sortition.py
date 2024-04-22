@@ -28,10 +28,10 @@ def get_overview(sample: pd.DataFrame, criteria: dict[str]) -> dict[pd.DataFrame
     for criterium in criteria:
         # Pandas Series with the number of people in *sample* with all the different characteristics in the criterium (e.g. man: 15, woman: 15).
         have = pd.Series(sample[criterium].value_counts(), name="what we have")
-        # Pandas Series containg how mny people we want with all the different characteristics in the criterium. This is read directly from the *criterium*
+        # Pandas Series containg how many people we want with all the different characteristics in the criterium. This is read directly from the *criterium*
         # dictionary.
         want = pd.Series(criteria[criterium]["values"], name="what we want")
-        # Concatenate the two Series. If there are if the re are any characteristics that no people in *sample* have, these will first become NaN in the "what we
+        # Concatenate the two Series. If there are any characteristics that no people in *sample* have, these will first become NaN in the "what we
         # have" column, which we replace with 0.
         df_con = pd.concat([have, want], axis=1).fillna(0)
         # Calcluate the difference between the two columns and insert the values into a new column.
@@ -66,15 +66,15 @@ def excess_or_demand(
             df[df["difference"] < 0].index if demand else df[df["difference"] > 0].index
         )
         # If there are any relevant characteristics, create a mask of the population that is True for people who have any of the characteristics and False for
-        # people who have none. The mask is saved in the dictionary /masks/ whith the criterium as the key. Since we requre that all criteria demand the same
-        # total number of people, any criterium that has at least one characterisitc in demand _must_ also have al least one characterisitc in excess.
+        # people who have none. The mask is saved in the dictionary /masks/ whith the criterium as the key. Since we require that all criteria demand the same
+        # total number of people, any criterium that has at least one characterisitc in demand _must_ also have at least one characterisitc in excess.
         if len(subsample.values) > 0:
             masks[criterium] = [
                 any(x)
                 for x in zip(*(population[criterium] == val for val in subsample))
             ]
     # Change the strictness to the minimum of the original strictness and the number of masks. The number of masks is equal to the number of criteria where there
-    # was at least one cahracteristic that is in demand/excess. The strictness needs to be between 1 and the total number of masks if one is to make nCk
+    # was at least one characteristic that is in demand/excess. The strictness needs to be between 1 and the total number of masks if one is to make nCk
     # combinations of masks, where n is the number of masks, and k is the strictness.
     strictness = min(strictness, len(masks))
     dfs = []
@@ -113,7 +113,7 @@ def get_distance(overview: dict[pd.DataFrame]) -> int:
 
 
 def validate_crtiera(criteria: dict) -> bool:
-    """Function to validate that all criteria demand the same tota lnumber of people.
+    """Function to validate that all criteria demand the same total number of people.
 
     Args:
         criteria (dict): Dict describing the desired distributon of each criterium.
@@ -212,7 +212,6 @@ def main(
     old_distance = np.inf
     distance = get_distance(overview)
 
-    stop = False
     # Iterate until a perfect lotting is found.
     while distance > 0:
         # Swap one person in excess with one person in demand

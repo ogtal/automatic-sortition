@@ -3,3 +3,4 @@ data/
 results/
 criteria/
 poetry.lock
+*.ipynb
