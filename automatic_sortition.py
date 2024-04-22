@@ -1,233 +1,256 @@
 import json
 from argparse import ArgumentParser
-from itertools import combinations
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
+import polars as pl
+from xlsxwriter import Workbook
 
 """
 Term definitions:
-A *criterium* 
-A *characteristic* is an attribute that a person can have, e.g. being female, being in the age group 16-25, or having a hugh school education.
+A *characteristic* is an attribute that a person can have, e.g. age, locality, education level, gender.
+A *group* in this context refers to the value of a given characterisitc attribute, e.g. having the gender "man", the locality "Oslo", or the age "16-25".
 """
 
 
-def get_overview(sample: pd.DataFrame, criteria: dict[str]) -> dict[pd.DataFrame]:
-    """Get an overview of how a given lotting compares to the desired criteria
+def get_want(criteria: dict) -> pl.DataFrame:
+    """A function for creating a pl.DataFrame showing how many people from each group for each characteristic is wanted in the final sample.
 
     Args:
-        sample (pd.DataFrame): A DataFrame containg a propoes lotting of participants
-        criteria (dict[str]): A dictionary mapping a criterium (e.g. age group, gender, education) to the desired number of participants with each characteristic in the criterium (e.g. 10 men and 10 women)
+        criteria (dict): A dictionary containing the criterium data.
 
     Returns:
-        dict[pd.DataFrame]: A dictionary mapping each criterium to a DataFrame with columns "what we have", "what we want", and "difference", showing how many participants in *sample* have a given characteristic in the criterium, how many participants it is desired to have with each characeristic (given by *criteria*), and the difference between these values for each characteristic respectively.
+        pl.DataFrame: A dataframe where each row corresponds to a group, showing which characteristic it belongs to, the number of people wanted belonging to the given group, and the priority of the characteristic.
     """
-    overview: dict = {}
-    # Iterate over the different criteria (e.g. age group, gender, education etc.)
-    for criterium in criteria:
-        # Pandas Series with the number of people in *sample* with all the different characteristics in the criterium (e.g. man: 15, woman: 15).
-        have = pd.Series(sample[criterium].value_counts(), name="what we have")
-        # Pandas Series containg how many people we want with all the different characteristics in the criterium. This is read directly from the *criterium*
-        # dictionary.
-        want = pd.Series(criteria[criterium]["values"], name="what we want")
-        # Concatenate the two Series. If there are any characteristics that no people in *sample* have, these will first become NaN in the "what we
-        # have" column, which we replace with 0.
-        df_con = pd.concat([have, want], axis=1).fillna(0)
-        # Calcluate the difference between the two columns and insert the values into a new column.
-        df_con["difference"] = df_con["what we have"] - df_con["what we want"]
-        # Add the DataFrame with the three columns to the overview dictionary, with the relevant criterium as the key.
-        overview[criterium] = df_con
-    return overview
-
-
-def excess_or_demand(
-    overview: dict[pd.DataFrame],
-    population: pd.DataFrame,
-    strictness: float = np.inf,
-    demand: bool = True,
-) -> list[pd.DataFrame]:
-    """A function to find the people in a population that have characteristics that are either in demand or in excess. Whether it finds the former or the latter is determined by the *demand* toggle.
-
-    Args:
-        overview (dict[pd.DataFrame]): A dictionary mapping criteria to a DataFrame of characteristics. See the output of /get_overview/
-        population (pd.DataFrame): The population from which the poeple with the relevant charcteristics are to be selected. When looking for people in demand, the population should be the total set of volunteers minus the volunteers already lotted. When looking for people in excess the population should be the people in the lotting.
-        strictness (float, optional): The numbre of characteristics in demand/excess a person need to have to be considered in demand/excess. Defaults to all.
-        demand (bool, optional): Toggle for whether to look for people in demnd or in excess. Defaults to True.
-
-    Returns:
-        list[pd.DataFrame]: A list of DataFrames of people in demand/excess for different groups of criteria.
-    """
-    masks = {}
-    # Iterate over the criteria and the overview for each of them
-    for criterium, df in overview.items():
-        # Find the indecies of the characteristics that are either in demand or in excess depending on the value of *demand*
-        subsample = (
-            df[df["difference"] < 0].index if demand else df[df["difference"] > 0].index
+    char = []
+    group = []
+    number = []
+    priority = []
+    ## Iterate over the criteria
+    for crit, dic in criteria.items():
+        char += (
+            [crit] * len(dic["values"])
+        )  # Add to the list of cahracteristics. E.g. ["Age", "Age", "Age", "Age", "Age"]
+        group += list(
+            dic["values"].keys()
+        )  # Add to the list of groups. E.g. ["16-25", "26-35", "36-45", "46-59", "60+"]
+        number += list(
+            dic["values"].values()
+        )  # Add to the list of number of people wanted. E.g. [2, 2, 1, 1, 2]
+        ## Add to the list of priority numbers. If no priority is given, set the priority to 1. E.g. [2, 2, 2, 2, 2]
+        priority += [dic["priority"] if "priority" in dic.keys() else 1] * len(
+            dic["values"]
         )
-        # If there are any relevant characteristics, create a mask of the population that is True for people who have any of the characteristics and False for
-        # people who have none. The mask is saved in the dictionary /masks/ whith the criterium as the key. Since we require that all criteria demand the same
-        # total number of people, any criterium that has at least one characterisitc in demand _must_ also have at least one characterisitc in excess.
-        if len(subsample.values) > 0:
-            masks[criterium] = [
-                any(x)
-                for x in zip(*(population[criterium] == val for val in subsample))
-            ]
-    # Change the strictness to the minimum of the original strictness and the number of masks. The number of masks is equal to the number of criteria where there
-    # was at least one characteristic that is in demand/excess. The strictness needs to be between 1 and the total number of masks if one is to make nCk
-    # combinations of masks, where n is the number of masks, and k is the strictness.
-    strictness = min(strictness, len(masks))
+    ## After adding to the lists for all characteristics, create a dataframe with the lists as columns and return it.
+    return pl.DataFrame(
+        {
+            "characteristic": char,
+            "group": group,
+            "priority": pl.Series(priority).cast(pl.Int64),
+            "want": pl.Series(number).cast(pl.Int64),
+        }
+    )
+
+
+def get_have(sample: pl.DataFrame) -> pl.DataFrame:
+    """Get a pl.DataFrame showing how many people in a given sample belong to each group in each caharacteristic.
+
+    Args:
+        sample (pl.DataFrame): The sample to be described.
+
+    Returns:
+        pl.DataFrame: A discription of the distribution of characteristics in the sample
+    """
     dfs = []
-    # Create the combinations and iterate over them. If the criteria are e.g. gender, age, and education, and the strictness is 2, the combinations will be the
-    # masks
-    # (gender, age)
-    # (gender, education)
-    # (age,    education)
-    for comb in combinations(masks, strictness):
-        # [1] Create a tuple of the masks of all the criteria in the combination
-        # [2] Unpack the tuple and group all elements together by index (the first elements of each mask are toether, as well as the second elements, etc.)
-        # [3] Evaluate to True at indices where _all_ masks are True. False everywhere else. This creates a new mask with the same length as the previous ones and
-        # as the population DataFrame
-        # [4] Apply the new mask to the population to get all the people from the population that has _any_ relevant characteristic from _all_ the criteria in the
-        # current combination
-        #      |--[4]---...|-----[3]---... [2]--|------------[1]-----------|
-        vols = population[[all(x) for x in zip(*(masks[key] for key in comb))]]
-        dfs.append(vols)
-    return dfs
+    ## Iterate over the cahracteristics and get a description of the distribution in the sample of each
+    for char in list(criteria.keys()):
+        dfs.append(
+            sample.group_by(char)
+            .len()
+            .with_columns(pl.lit(char).alias("characteristic"))
+            .rename({char: "group", "len": "have"})
+        )
+    return pl.concat(dfs).select(
+        "characteristic", "group", pl.col("have").cast(pl.Int64)
+    )
 
 
-def get_distance(overview: dict[pd.DataFrame]) -> int:
-    """A function to calculate the total deaition of a sample from the criteria.
+def get_overview(sample: pl.DataFrame, want: pl.DataFrame) -> pl.DataFrame:
+    """Get an overview of the wanted distribution of characteristics in the sample, the actual distribution, and the difference between these.
 
     Args:
-        overview (dict[pd.DataFrame]): A dict of DataFrames with criteria as keys. See the output of /get_overview/.
+        sample (pl.DataFrame): The sample to be described.
+        want (pl.DataFrame): The wanted distribution of characteristics.
 
     Returns:
-        int: Sum of the absolute values of all the "difference" columns.
+        pl.DataFrame: A dataframe with five columns "characteristic", "group", "priority", "have", "want", and "diff"
     """
+    have = get_have(sample)
+    return (
+        have.join(want, on=("characteristic", "group"), how="outer_coalesce")
+        .sort("characteristic", "priority", nulls_last=True)
+        .with_columns(
+            pl.col("have", "want").fill_null(0),
+            pl.col("priority").fill_null(strategy="forward"),
+        )
+        .with_columns((pl.col("have") - pl.col("want")).alias("diff"))
+        .sort("priority", "characteristic", "group")
+        .select("characteristic", "group", "priority", "have", "want", "diff")
+    )
 
-    s = 0
-    for df in overview.values():
-        s += df["difference"].apply(abs).sum()
-    return s
 
-
-def validate_crtiera(criteria: dict) -> bool:
-    """Function to validate that all criteria demand the same total number of people.
+def excess_and_demand(
+    sample: pl.DataFrame, want: pl.DataFrame, relevant_characteristic: str
+) -> tuple[pl.Series, pl.Series]:
+    """Get two pl.Series: One with the groups that are in excess and one with groups that a re in demand for a given characteristic. E.g. if the given characteristic is "Locality" excess might be pl.Series(["Oslo"]), while demand might be pl.Series(["Bergen", "Trondheim"]).
 
     Args:
-        criteria (dict): Dict describing the desired distributon of each criterium.
+        sample (pl.DataFrame): The sample to analyze
+        want (pl.DataFrame): Dataframe describing the desired distribution of characteristics
+        relevant_characteristic (str): The characteristic we want to analyze
 
     Returns:
-        bool: Whether the criteria pass the test or not.
+        tuple[pl.Series, pl.Series]: The groups that are in excess and demand respectively.
     """
-    totals = np.zeros(len(criteria), dtype=int)
-    for i, value in enumerate(criteria.values()):
-        totals[i] = sum([number for number in value["values"].values()])
-    return np.all(totals == totals[0])
+    overview = get_overview(sample, want)
+    excess_temp = (
+        overview.filter(
+            (pl.col("characteristic").eq(relevant_characteristic), pl.col("diff") > 0)
+        )
+        .group_by("characteristic")
+        .agg("group")
+        .get_column("group")
+    )
+    demand_temp = (
+        overview.filter(
+            (pl.col("characteristic").eq(relevant_characteristic), pl.col("diff") < 0)
+        )
+        .group_by("characteristic")
+        .agg("group")
+        .get_column("group")
+    )
+    excess = excess_temp.item() if len(excess_temp) > 0 else pl.Series([])
+    demand = demand_temp.item() if len(demand_temp) > 0 else pl.Series([])
+
+    return excess, demand
 
 
-def main_iteration(
-    sample: pd.DataFrame,
-    volunteers: pd.DataFrame,
-    overview: dict[pd.DataFrame],
-    criteria: dict[str],
-) -> pd.DataFrame:
-    """Main iteration loop. Tries to find the people in a sample with the most characteristics that are in excess and replace them with people not yet in the lotting with the most characteristics that are in demand.
+def get_distance(sample: pl.DataFrame, want: pl.DataFrame) -> int:
+    """A simple helper to calculate the distance between the current and wanted distribution of charachteristics.
 
     Args:
-        sample (pd.DataFrame): Satring sample of people that have been lotted.
-        volunteers (pd.DataFrame): Full dataframe of all volunteers, both those who have been lotted, and those who have not.
-        overview (dict[pd.DataFrame]): Overview describing the distribution of characteristics of each criteria, compared with the desired distribution, See ouput of /get_overview/
-        criteria (dict[str]): Criteria describing the desired distribution of characteristics.
+        sample (pl.DataFrame): The sample to find the distance from
+        want (pl.DataFrame): The desired distribution
 
     Returns:
-        pd.DataFrame: A new sample with one person wih charateristics in excess swapped with another person with characteristics in demand.
+        int: The distance as an integer
     """
-    # Set the initial strictness to be equal to the length of the overview. (Also equal to the total number of criteria)
-    strictness = len(overview)
-    # A mask of which people in the /volunteers/ DataFrame are also in the /sample/ DataFrame. These are the people who have already been lotted.
-    isin_mask = volunteers["Navn"].isin(sample["Navn"])
-    # Inital distance
-    distance = get_distance(overview)
-
-    # Loop over ever decreasing strictnesses until a swappable match is found.
-    while strictness >= 1:
-        # Get list of dicts with DataFrames of people who have not been lotted but have characteristics that are in demand
-        in_demand = excess_or_demand(overview, volunteers[~isin_mask], strictness)
-        # Get list of dicts with DataFrames of people who have been lotted, but who have characeristics that are in excess
-        in_excess = excess_or_demand(overview, sample, strictness, demand=False)
-
-        # Iterate over the DataFrames. The people in demnd will have characteristics in demand in the same criteria as the people in excess have characteristics
-        # in excess. E.g. if the criteria are (gender, education), and we are in demand of people who are female, and people who have a university education, but have an excess of people who are male, and people who have high school education, the DataFrames will contain such individuals respectively.
-        for dem, exc in zip(in_demand, in_excess):
-            # Randomly sort the people in demand and iterate over their indices
-            for i in dem.sample(len(dem)).index:
-                # Access the current volunteer in demand
-                vol = dem.loc[[i]]
-
-                # Iterate over the volunteers in excess in random order
-                for j in exc.sample(len(exc)).index:
-                    ex_vol = exc.loc[[j]]
-
-                    # Create a temporary sample where the current person in excess is swapped for the current person in demand.
-                    temp_sample = pd.concat(
-                        [sample.drop(ex_vol.index[0]), vol], ignore_index=True
-                    )
-                    # If the new temporary sample has a lower distance than the original one, return is as the new sample.
-                    if get_distance(get_overview(temp_sample, criteria)) <= distance:
-                        return temp_sample
-        # If after looping through all combinations of criteria there has not been found any suitable pairs of volunteers to swap, reduce the strictness and
-        # repeat.
-        strictness -= 1
-    # If after reducing the strictness to 1 no suitable matches to swap have been found, return the original sample.
-    return sample
+    overview = get_overview(sample, want)
+    return overview.select(pl.col("diff").abs()).sum().item() // 2
 
 
-class CriteriaError(Exception):
-    pass
-
-
-def main(
-    starting_sample: pd.DataFrame, volunteers: pd.DataFrame, criteria: dict
-) -> pd.DataFrame:
-    """Main function. Takes a starting sample of volunteers and successively swaps those with characteristics in excess for people with characteristics in demand.
+def iteration(
+    sample: pl.DataFrame, volunteers: pl.DataFrame, want: pl.DataFrame
+) -> pl.DataFrame:
+    """A single iteration swapping a maximum of one person for each cahracterisitc
 
     Args:
-        starting_sample (pd.DataFrame): Starting sample of lotted participants. My be completely random or pre-lotted.
-        volunteers (pd.DataFrame): Dataframe of all volunteers. Both those who have been lotted, and those who have not.
-        criteria (dict): The criteria describing the desired distribution of characteristics.
-
-    Raises:
-        CriteriaError: If not all criteria demand the same total number of people.
+        sample (pl.DataFrame): The starting sample
+        volunteers (pl.DataFrame): A dataframe containing all volunteers: Both those already in the sample and those not.
+        want (pl.DataFrame): A dataframe describing the desired distribution of characteristics.
 
     Returns:
-        pd.DataFrame: Final optimal lotting.
+        pl.DataFrame: A new sample of the same length as the input sample, but with some participants swapped.
     """
-    if not validate_crtiera(criteria=criteria):
-        raise CriteriaError("Not all criteria demand the same total number of people")
 
-    sample = starting_sample.copy()
-    overview = get_overview(sample, criteria)
-    old_distance = np.inf
-    distance = get_distance(overview)
+    ## Get a list of the characteristics in prioritized order. E.g. ["Gender", "Age", "Locality", "Education"]
+    chars = (
+        want.sort(pl.col("priority"))  # Sort by priority
+        .get_column(
+            "characteristic"
+        )  # Get only the column with the characteristic names
+        .unique(
+            maintain_order=True
+        )  # Maintain only one row of each characteristic name, but keep the prioritized order
+        .to_list()  # Convert to list
+    )
 
-    # Iterate until a perfect lotting is found.
-    while distance > 0:
-        # Swap one person in excess with one person in demand
-        sample = main_iteration(sample, volunteers, overview, criteria)
+    ## Iterate over the cahracteristics from highest to lowest priority
+    for i, char in enumerate(chars):
+        ## Get the groups that are in excess and demand respectively for the current characteristic. E.g. if char is "Locatity" and sample contains fewer people from Oslo, but more people from Bergen and Trondheim, than we want, excess and demand will be pl.Series(["Bergen", "Trondheim"]) and pl.Series(["Oslo"]) respectively.
+        excess, demand = excess_and_demand(sample, want, char)
 
-        # Get new overview and distance
-        overview = get_overview(sample, criteria)
-        old_distance = distance
-        distance = get_distance(overview)
+        ## Get the IDs of the people that are in the sample who belong to a group that is in excess for the given characteristic. E.g. if excess is pl.Series(["Bergen", "Trondheim"]), excess_ids will be a pl.Series containing the IDs of all the people in sample who are from Bergen or Trondheim
+        excess_ids = (
+            sample.filter(
+                pl.col(char).is_in(excess)
+            )  # Get the rows from sample where the value in the column corresponding to the current characteristic is in the list of groups in excess
+            .sample(fraction=1)  # Randomly shuffle the order
+            .get_column("index")  # Get only the index column
+        )
+        ## If there are no people in excess, continue to the next cahracteristic with lower priority, e.g. go from "Locality" to "Education"
+        if len(excess_ids) == 0:
+            continue
 
-        # If distance does not improve, quit loop.
-        if old_distance == distance:
-            print(f"Distance not improving beyond {int(distance)}. Exiting.")
+        ## Iterate over the poeple in excess and swap them out for a person who belongs to a group that is in demand for the current characteristic, but belongs to all the same groups as the person in excess for all the characteristics with higher priority than the current. E.g. if demand is pl.Series(["Oslo"]) and excess is pl.Series(["Bergen", "Trondheim"]), and excess_person belong to the following groups for all characrterisitcs {"Gender": "Man", "Age": "16-25", "Locality": "Bergen", "Education": "Primary school"}, we can swap them out with someone not yet in the sample who belong to the following groups {"Gender": "Man", "Age": "16-25", "Locality": "Oslo", "Education": "High school"}. Note that the new person belongs to the same groups as excess_person for the characteristics of higher priority ("Gebder" and "Age") than the current characteristic ("Locality"). They also belong to a group that is in demand for the current characteristic. We can also see that their group belonging in "Education" has changed, but this does not matter since the cahracteristic "Education" has lower priority than the current characteristic "Locality".
+        for excess_id in excess_ids:
+            ## Extract the person with the current excess_id
+            excess_person = sample.filter(pl.col("index").eq(excess_id))
+            ## Extract the poeple that are in demand
+            demand_people = volunteers.filter(  # Extract the volunteers who...
+                (
+                    pl.col(char).is_in(
+                        demand
+                    ),  # ... belong to a group that is in demand for the current characteristic...
+                    ~pl.col("index").is_in(
+                        sample.get_column("index")
+                    ),  # ... and are not already in the sample.
+                )
+            )
+            ## If there are any characteristics that have higher priority than the current characteristic, remove people from the list of people in demand if they do not beliong to the same groups as excess_person for these higher priority characteristics.
+            if len(chars[:i]) > 0:
+                demand_people = demand_people.join(  # Return the people in demand who,...
+                    excess_person,  # when compared to the person in excess...
+                    on=chars[:i],  # on the characteristics with higher priority,...
+                    how="semi",  # belong to the same groups. (See https://docs.pola.rs/user-guide/transformations/joins/#join-strategies for how a semi-join works)
+                )
+            ## If there are no people in demand, continue to the next person in excess
+            if len(demand_people) == 0:
+                continue
+            ## Finally remove the person in excess and insert a random person in demand
+            sample = pl.concat(
+                [
+                    sample.filter(
+                        ~pl.col("index").eq(excess_id)
+                    ),  # The original sample minus the person in excess
+                    demand_people.sample(1),  # A single random person in demand
+                ]
+            )
+            ## Continue to the next cahracteristic with lower priority
             break
-    # Return final optimal sample.
+    ## Return the swapped sample
     return sample
+
+
+def main(volunteers: pl.DataFrame, criteria: dict) -> tuple[pl.DataFrame, pl.DataFrame]:
+    sample = volunteers.sample(
+        sum(criteria[list(criteria.keys())[0]]["values"].values())
+    )
+    want = get_want(criteria)
+    old_distance = np.inf
+    distance = get_distance(sample, want)
+
+    while distance > 0:
+        sample = iteration(sample, volunteers, want)
+        old_distance = distance
+        distance = get_distance(sample, want)
+        if old_distance == distance:
+            sample = iteration(sample, volunteers, want)
+            print(
+                f"Distance not improving beyond {int(get_distance(sample, want))}. Exiting."
+            )
+            break
+    return sample.sort("index"), get_overview(sample, want)
 
 
 if __name__ == "__main__":
@@ -241,17 +264,16 @@ if __name__ == "__main__":
 
     output = Path(args.output)
 
-    volunteers = pd.read_excel(args.volunteers)
+    volunteers = pl.read_excel(args.volunteers).with_row_index()
     criteria = json.load(Path(args.criteria).open())
-    sample = volunteers.sample(
-        sum(criteria[list(criteria.keys())[0]]["values"].values())
-    )
 
-    lotting = main(starting_sample=sample, volunteers=volunteers, criteria=criteria)
+    lotting, overview = main(volunteers=volunteers, criteria=criteria)
 
-    overview = get_overview(lotting, criteria)
-
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        lotting.to_excel(writer, sheet_name="lotting", index=False)
-        for criterium, view in overview.items():
-            pd.DataFrame(view).to_excel(writer, sheet_name=criterium)
+    with Workbook(filename=output) as workbook:
+        lotting.select(pl.exclude("index")).write_excel(
+            workbook=workbook, worksheet="lotting"
+        )
+        for char in overview.get_column("characteristic").unique():
+            overview.filter(pl.col("characteristic").eq(char)).select(
+                "group", "have", "want", "diff"
+            ).write_excel(workbook=workbook, worksheet=char)
