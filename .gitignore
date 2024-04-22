@@ -1,6 +1,9 @@
 .venv/
-data/
-results/
-criteria/
+data/*
+!data/volunteers.xlsx
+results/*
+!results/output.xlsx
+criteria/*
+!criteria/criteria.json
 poetry.lock
 *.ipynb

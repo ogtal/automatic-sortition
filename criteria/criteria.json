@@ -1,0 +1,36 @@
+{
+    "Bosted": {
+        "values": {
+            "Oslo": 3,
+            "Bergen": 3,
+            "Trondheim": 2
+        },
+        "priority": 4
+    },
+    "Utdanning": {
+        "values": {
+            "Master": 2,
+            "Bachelor": 2,
+            "Videregående": 2,
+            "Grunnskole": 2
+        },
+        "priority": 3
+    },
+    "Alder": {
+        "values": {
+            "16-25 år": 2,
+            "26-35 år": 2,
+            "36-45 år": 1,
+            "46-59 år": 1,
+            "60+ år": 2
+        },
+        "priority": 2
+    },
+    "Kjønn": {
+        "values": {
+            "Mann": 4,
+            "Kvinne": 4
+        },
+        "priority": 1
+    }
+}
