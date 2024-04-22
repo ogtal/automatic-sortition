@@ -8,7 +8,7 @@ from xlsxwriter import Workbook
 
 """
 Term definitions:
-A *characteristic* is an attribute that a person can have, e.g. age, locality, education level, gender.
+A *characteristic* is an attribute that a person can have, e.g. age, locality, education level, or gender.
 A *group* in this context refers to the value of a given characterisitc attribute, e.g. having the gender "man", the locality "Oslo", or the age "16-25".
 """
 
@@ -254,18 +254,39 @@ def main(volunteers: pl.DataFrame, criteria: dict) -> tuple[pl.DataFrame, pl.Dat
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser("Automatic Sortition")
+    parser = ArgumentParser(
+        prog="Automatic Sortition",
+        description="Create a random sortition of people that tries to fulfill a given set of criteria as well as possible.",
+    )
 
-    parser.add_argument("-v", "--volunteers", default="data/volunteers.xlsx")
-    parser.add_argument("-c", "--criteria", default="criteria/criteria.json")
-    parser.add_argument("-o", "--output", default="results/output.xlsx")
+    parser.add_argument(
+        "-v",
+        "--volunteers",
+        help="Location of Excel-file containing rows of volunteers.",
+        type=Path,
+        default="data/volunteers.xlsx",
+    )
+    parser.add_argument(
+        "-c",
+        "--criteria",
+        help="Location of JSON-file containing the desired distribution of characteristics.",
+        type=Path,
+        default="criteria/criteria.json",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        help="Location of output file.",
+        type=Path,
+        default="results/output.xlsx",
+    )
 
     args = parser.parse_args()
 
     output = Path(args.output)
 
     volunteers = pl.read_excel(args.volunteers).with_row_index()
-    criteria = json.load(Path(args.criteria).open())
+    criteria = json.load(args.criteria.open())
 
     lotting, overview = main(volunteers=volunteers, criteria=criteria)
 
