@@ -87,7 +87,7 @@ def get_overview(sample: pl.DataFrame, want: pl.DataFrame) -> pl.DataFrame:
     """
     have = get_have(sample)
     return (
-        have.join(want, on=("characteristic", "group"), how="outer_coalesce")
+        have.join(want, on=("characteristic", "group"), how="full", coalesce=True)
         .sort("characteristic", "priority", nulls_last=True)
         .with_columns(
             pl.col("have", "want").fill_null(0),
@@ -97,6 +97,30 @@ def get_overview(sample: pl.DataFrame, want: pl.DataFrame) -> pl.DataFrame:
         .sort("priority", "characteristic", "group")
         .select("characteristic", "group", "priority", "have", "want", "diff")
     )
+
+
+def get_reserves(
+    sample: pl.DataFrame, volunteers: pl.DataFrame, criteria: dict
+) -> pl.DataFrame:
+    """Append a column to sample indicating the number of volunteers not yet in the sample who have the exact same profile as the ones in the sample.
+
+    Args:
+        sample (pl.DataFrame): The sample to find reserves for.
+        volunteers (pl.DataFrame): All volunteers.
+        criteria (dict): Description of desired distribution of characteristics.
+    """
+    ## Get a list of all the characteristics, e.g. ["Age", "Gender, Locality", "Education"]
+    chars = list(criteria.keys())
+    ## Filter out the volunteers who are already in the sample
+    available_volunteers = volunteers.filter(
+        ~pl.col("index").is_in(sample.get_column("index"))
+    )
+    ## Count how many times each unique profile occurs among the available volunteers
+    volunteers_count = available_volunteers.group_by(chars).agg(
+        pl.len().alias("Reserves")
+    )
+    ## Join the people in the sample with the counts of each profile on all relevant characteristics, giving the desired new column with number of reserves. If no reserves exists, the joing yields None for that profile. This is the nfilled with zeros.
+    return sample.join(volunteers_count, on=chars, how="left").fill_null(0)
 
 
 def excess_and_demand(
@@ -250,6 +274,7 @@ def main(volunteers: pl.DataFrame, criteria: dict) -> tuple[pl.DataFrame, pl.Dat
                 f"Distance not improving beyond {int(get_distance(sample, want))}. Exiting."
             )
             break
+    sample = get_reserves(sample=sample, volunteers=volunteers, criteria=criteria)
     return sample.sort("index"), get_overview(sample, want)
 
 
