@@ -7,7 +7,7 @@ license = "AGPLv3"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.10"
 numpy = "^1.26.3"
 xlsxwriter = "^3.1.2"
 polars = "^0.20.22"
