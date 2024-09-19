@@ -120,7 +120,7 @@ def get_reserves(
         pl.len().alias("Reserves")
     )
     ## Join the people in the sample with the counts of each profile on all relevant characteristics, giving the desired new column with number of reserves. If no reserves exists, the joing yields None for that profile. This is the nfilled with zeros.
-    return sample.join(volunteers_count, on=chars, how="left").fill_null(0)
+    return sample.join(volunteers_count, on=chars, how="left", coalesce=True).fill_null(0)
 
 
 def excess_and_demand(
