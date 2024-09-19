@@ -321,7 +321,20 @@ if __name__ == "__main__":
     criteria = json.load(args.criteria.open())
 
     lotting, overview = main(volunteers=volunteers, criteria=criteria)
-    print(f"Distance: {int(get_distance(overview=overview))}.")
+
+    reserves_count = lotting.get_column("Reserves").value_counts()
+    no_reserves = (
+        reserves_count.filter(pl.col("Reserves").eq(0)).get_column("count").sum()
+    )
+    one_reserve = (
+        reserves_count.filter(pl.col("Reserves").eq(1)).get_column("count").sum()
+    )
+    more_than_two_reserves = (
+        reserves_count.filter(pl.col("Reserves").ge(2)).get_column("count").sum()
+    )
+    print(
+        f"Distance: {int(get_distance(overview=overview))}\n0 reserves:  {no_reserves}\n1 reserve:   {one_reserve}\n>2 reserves: {more_than_two_reserves}\n"
+    )
 
     with Workbook(filename=output) as workbook:
         lotting.select(pl.exclude("index")).write_excel(
