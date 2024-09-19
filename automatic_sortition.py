@@ -53,18 +53,26 @@ def get_want(criteria: dict) -> pl.DataFrame:
     )
 
 
-def get_have(sample: pl.DataFrame) -> pl.DataFrame:
+def get_have(sample: pl.DataFrame, want: pl.DataFrame) -> pl.DataFrame:
     """Get a pl.DataFrame showing how many people in a given sample belong to each group in each caharacteristic.
 
     Args:
         sample (pl.DataFrame): The sample to be described.
+        want (pl.DataFrame): The wanted distribution. Used to get the name of the characteristics.
 
     Returns:
         pl.DataFrame: A discription of the distribution of characteristics in the sample
     """
+    chars = (
+        want.get_column(
+            "characteristic"
+        )  # Get only the column with the characteristic names
+        .unique()  # Maintain only one row of each characteristic name
+        .to_list()  # Convert to list
+    )
     dfs = []
     ## Iterate over the cahracteristics and get a description of the distribution in the sample of each
-    for char in list(criteria.keys()):
+    for char in chars:
         dfs.append(
             sample.group_by(char)
             .len()
@@ -86,7 +94,7 @@ def get_overview(sample: pl.DataFrame, want: pl.DataFrame) -> pl.DataFrame:
     Returns:
         pl.DataFrame: A dataframe with five columns "characteristic", "group", "priority", "have", "want", and "diff"
     """
-    have = get_have(sample)
+    have = get_have(sample=sample, want=want)
     return (
         have.join(want, on=("characteristic", "group"), how="full", coalesce=True)
         .sort("characteristic", "priority", nulls_last=True)
