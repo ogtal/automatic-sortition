@@ -1,6 +1,7 @@
 import json
 from argparse import ArgumentParser
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import polars as pl
@@ -159,16 +160,25 @@ def excess_and_demand(
     return excess, demand
 
 
-def get_distance(sample: pl.DataFrame, want: pl.DataFrame) -> int:
+def get_distance(
+    sample: Optional[pl.DataFrame] = None,
+    want: Optional[pl.DataFrame] = None,
+    overview: Optional[pl.DataFrame] = None,
+) -> int:
     """A simple helper to calculate the distance between the current and wanted distribution of charachteristics.
 
     Args:
-        sample (pl.DataFrame): The sample to find the distance from
-        want (pl.DataFrame): The desired distribution
+        sample (pl.DataFrame): The sample to find the distance from.
+        want (pl.DataFrame): The desired distribution.
+        overview (pl.DataFrame): Optionally provide just the overview.
 
     Returns:
         int: The distance as an integer
     """
+    assert (sample is not None and want is not None) or (
+        overview is not None
+    ), "Either both sample and want, or overview, must be provided."
+    if overview is None:
     overview = get_overview(sample, want)
     return overview.select(pl.col("diff").abs()).sum().item() // 2
 
@@ -262,17 +272,14 @@ def main(volunteers: pl.DataFrame, criteria: dict) -> tuple[pl.DataFrame, pl.Dat
     )
     want = get_want(criteria)
     old_distance = np.inf
-    distance = get_distance(sample, want)
+    distance = get_distance(sample=sample, want=want)
 
     while distance > 0:
         sample = iteration(sample, volunteers, want)
         old_distance = distance
-        distance = get_distance(sample, want)
+        distance = get_distance(sample=sample, want=want)
         if old_distance == distance:
             sample = iteration(sample, volunteers, want)
-            print(
-                f"Distance not improving beyond {int(get_distance(sample, want))}. Exiting."
-            )
             break
     sample = get_reserves(sample=sample, volunteers=volunteers, criteria=criteria)
     return sample.sort("index"), get_overview(sample, want)
@@ -314,6 +321,7 @@ if __name__ == "__main__":
     criteria = json.load(args.criteria.open())
 
     lotting, overview = main(volunteers=volunteers, criteria=criteria)
+    print(f"Distance: {int(get_distance(overview=overview))}.")
 
     with Workbook(filename=output) as workbook:
         lotting.select(pl.exclude("index")).write_excel(
