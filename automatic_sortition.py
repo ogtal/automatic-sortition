@@ -187,7 +187,7 @@ def get_distance(
         overview is not None
     ), "Either both sample and want, or overview, must be provided."
     if overview is None:
-    overview = get_overview(sample, want)
+        overview = get_overview(sample, want)
     return overview.select(pl.col("diff").abs()).sum().item() // 2
 
 
