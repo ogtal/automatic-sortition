@@ -5,7 +5,8 @@
             "Bergen": 3,
             "Trondheim": 2
         },
-        "priority": 4
+        "priority": 4,
+        "reserve_criteria": false
     },
     "Utdanning": {
         "values": {
@@ -24,13 +25,15 @@
             "46-59 år": 1,
             "60+ år": 2
         },
-        "priority": 2
+        "priority": 2,
+        "reserve_criteria": true
     },
     "Kjønn": {
         "values": {
             "Mann": 4,
             "Kvinne": 4
         },
-        "priority": 1
+        "priority": 1,
+        "reserve_criteria": true
     }
 }

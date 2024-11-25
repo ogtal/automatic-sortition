@@ -118,8 +118,11 @@ def get_reserves(
         volunteers (pl.DataFrame): All volunteers.
         criteria (dict): Description of desired distribution of characteristics.
     """
-    ## Get a list of all the characteristics, e.g. ["Age", "Gender, Locality", "Education"]
-    chars = list(criteria.keys())
+    ## Get a list of all the characteristics, e.g. ["Age", "Gender, Locality", "Education"]. Some characteristics can be chosen to not be considered when counting reserves.
+    chars = []
+    for char, dic in criteria.items():
+        if dic.get("reserve_criteria", True):
+            chars.append(char)
     ## Filter out the volunteers who are already in the sample
     available_volunteers = volunteers.filter(
         ~pl.col("index").is_in(sample.get_column("index"))
@@ -128,7 +131,7 @@ def get_reserves(
     volunteers_count = available_volunteers.group_by(chars).agg(
         pl.len().alias("Reserves")
     )
-    ## Join the people in the sample with the counts of each profile on all relevant characteristics, giving the desired new column with number of reserves. If no reserves exists, the joing yields None for that profile. This is the nfilled with zeros.
+    ## Join the people in the sample with the counts of each profile on all relevant characteristics, giving the desired new column with number of reserves. If no reserves exists, the joing yields None for that profile. This is then filled with zeros.
     return sample.join(volunteers_count, on=chars, how="left", coalesce=True).fill_null(0)
 
 
